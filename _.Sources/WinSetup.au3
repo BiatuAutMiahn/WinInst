@@ -4,7 +4,7 @@
 #AutoIt3Wrapper_Outfile_x64=..\InitSetup.exe
 #AutoIt3Wrapper_Change2CUI=y
 #AutoIt3Wrapper_Res_Description=Unattended Windows Setup
-#AutoIt3Wrapper_Res_Fileversion=1.0.0.34
+#AutoIt3Wrapper_Res_Fileversion=1.0.0.63
 #AutoIt3Wrapper_Res_Fileversion_AutoIncrement=y
 #AutoIt3Wrapper_Res_Fileversion_First_Increment=y
 #AutoIt3Wrapper_Res_ProductName=Infinity.WinSetup
@@ -94,7 +94,7 @@
 ;DllCall("Kernel32.dll", "bool", "AllocConsole")
 ;_WinAPI_AttachConsole(-1)
 ; Global Const
-Global Const $VERSION = "1.0.0.34"
+Global Const $VERSION = "1.0.0.63"
 Global Const $sAlias = "Infinity.WinInst"
 Global $sGuiTitle = $sAlias & " v" & $VERSION & 'b'
 Global Const $wbemFlagReturnImmediately = 0x10
@@ -124,7 +124,7 @@ Global $oWmiSmp
 Global $oWmiRoot
 Global $iDrive
 Global $iLongestName = 0
-Global $aDisks[0][3]
+Global $aDisks[0][4]
 Global $aWims[1][2]
 Global $aWimImages
 
@@ -147,11 +147,11 @@ _Log("Initializing UI...")
 #Region ### MainGUI ###
 AutoItSetOption("GUIOnEventMode", 1)
 Global $iGuiW = 640 - (640 / 4)
-Global $iGuiH = 238
+Global $iGuiH = 272;238
 Global $iComCtrlH = 16
 Global $iBtnH = 28
-Global $iBtnT = 208
-Global $agidOpt[2]
+Global $iBtnT = $iGuiH-$iBtnH-4
+Global $agidOpt[6]
 Global $agsBtn = StringSplit("&Pause,&Resume,&Install,&Abort,&Tools,&Quit", ',')
 Global $agidBtn[$agsBtn[0]+1]
 Global $iComCtrlW = $iGuiW - 8
@@ -175,7 +175,12 @@ Global $iFileCur = 0
 Global $iTotMax = 359
 Global $oDisk
 ;Global $bOptUnattend = False
-Global $bOptAutoReboot = False
+Global $bOptAutoReboot=False
+Global $bOptAudit=False
+Global $bOptRamInst=False
+Global $bOptDoStage=False
+Global $sOptStgPreset=""
+
 Global $_WndTimeoutMsg
 Global $_WndTimeoutTimer
 Global $_WndTimeoutTimerLast
@@ -193,8 +198,8 @@ $aUtils[0][0]=0
 ;_GUICtrlMenuEx_Startup()
 ;_FindImage()
 ;_Log("WimPath:"&$sWimPath & @CRLF)
-$agidBtn[0] = $agsBtn[0]
-$agidOpt[0] = 1
+$agidBtn[0]=$agsBtn[0]
+$agidOpt[0]=5
 $hMain = GUICreate($sGuiTitle, $iGuiW, $iGuiH, -1, -1, 0x16CE0000, 0x00010100)
 GUISetFont(10, 400, 0, "Consolas", $hMain)
 $gidDisk = GUICtrlCreateCombo("Scanning...", 4, 4, $iComCtrlW - 60 - 4, 24, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL))
@@ -214,16 +219,27 @@ $ghWimIdx = GUICtrlGetHandle($gidWimIdx)
 ;GUICtrlSetFont($gidDiskScan,16,400,0,"Webdings")
 ;$agidOpt[1] = GUICtrlCreateCheckbox("Unattend.xml /w Utils", 4, 32, 128 + 32 + 4, $iComCtrlH)
 ;GUICtrlSetOnEvent($agidOpt[1], "_GuiEvtOpt")
-$agidOpt[1] = GUICtrlCreateCheckbox("Auto Reboot", 4, 90, 64 + 16 + 8 + 4 + 2, $iComCtrlH)
+Local $iGuiOptT=90
+Local $iGuioptW=94
+$agidOpt[1]=GUICtrlCreateCheckbox("Auto Reboot",4,$iGuiOptT,$iGuioptW,$iComCtrlH)
+$agidOpt[2]=GUICtrlCreateCheckbox("Audit Mode",4,$iGuiOptT+$iComCtrlH,$iGuioptW,$iComCtrlH)
+$agidOpt[3]=GUICtrlCreateCheckbox("RAM Inst",4,$iGuiOptT+($iComCtrlH*2),$iGuioptW,$iComCtrlH)
+GUICtrlCreateGroup("",$iGuioptW+8,$iGuiOptT+2,204,48)
+$agidOpt[4]=-1
+GUICtrlCreateCheckbox("Auto.ctStage",$iGuioptW+16,$iGuiOptT+2,$iGuioptW+8,$iComCtrlH)
+GUICtrlSetState(-1,$GUI_DISABLE)
+$ghAutoPreset=GUICtrlCreateCombo("",$iGuioptW+14,$iGuiOptT+$iComCtrlH+4,192,$iComCtrlH,BitOR($CBS_DROPDOWN,$CBS_AUTOHSCROLL,$WS_VSCROLL))
+GUICtrlSetState(-1,$GUI_DISABLE)
 GUICtrlSetOnEvent($agidOpt[1], "_GuiEvtOpt")
-$gidLabelStp = GUICtrlCreateLabel("Waiting", 4, 108, $iComCtrlW, $iComCtrlH)
-$gidProgStp = GUICtrlCreateProgress(4, 124, $iComCtrlW, $iComCtrlH, $PBS_SMOOTH)
+Local $iProgT=$iBtnT-4
+$gidLabelStp = GUICtrlCreateLabel("Waiting", 4, $iProgT-($iComCtrlH*6), $iComCtrlW, $iComCtrlH)
+$gidProgStp = GUICtrlCreateProgress(4, $iProgT-($iComCtrlH*5), $iComCtrlW, $iComCtrlH, $PBS_SMOOTH)
 $ghProgStp = GUICtrlGetHandle($gidProgStp)
-$gidLabelStg = GUICtrlCreateLabel("Waiting", 4, 140, $iComCtrlW, $iComCtrlH)
-$gidProgStg = GUICtrlCreateProgress(4, 156, $iComCtrlW, $iComCtrlH, $PBS_SMOOTH)
+$gidLabelStg = GUICtrlCreateLabel("Waiting", 4, $iProgT-($iComCtrlH*4), $iComCtrlW, $iComCtrlH)
+$gidProgStg = GUICtrlCreateProgress(4, $iProgT-($iComCtrlH*3), $iComCtrlW, $iComCtrlH, $PBS_SMOOTH)
 $ghProgStg = GUICtrlGetHandle($gidLabelStg)
-$gidLabelTot = GUICtrlCreateLabel("Total Progress", 4, 172, $iComCtrlW, $iComCtrlH)
-$gidProgTot = GUICtrlCreateProgress(4, 188, $iComCtrlW, $iComCtrlH, $PBS_SMOOTH)
+$gidLabelTot = GUICtrlCreateLabel("Total Progress", 4, $iProgT-($iComCtrlH*2), $iComCtrlW, $iComCtrlH)
+$gidProgTot = GUICtrlCreateProgress(4, $iProgT-$iComCtrlH, $iComCtrlW, $iComCtrlH, $PBS_SMOOTH)
 $ghProgTot = GUICtrlGetHandle($gidProgTot)
 $igBtnL = 4;4 + ($iComCtrlW / 2) - (($iBtnW / 2) * ($agidBtn[0] - 2)) ;-(($iBtnW+4)*$agidBtn[0])/2
 ;$igBtnW =
@@ -359,9 +375,7 @@ Func MenuItem_SetIcon($s_FilePath, $i_IconID, $h_Menu, $i_MenuID, $i_Load = 0, $
 EndFunc   ;==>MenuItem_SetIcon
 
 Func _CreateBitmapFromIcon($iBackground, $sIcon, $iIndex, $iWidth, $iHeight)
-
     Local $hDC, $hBackDC, $hBackSv, $hIcon, $hBitmap
-
     $hDC = _WinAPI_GetDC(0)
     $hBackDC = _WinAPI_CreateCompatibleDC($hDC)
     $hBitmap = _WinAPI_CreateSolidBitmap(0, $iBackground, $iWidth, $iHeight)
@@ -375,7 +389,7 @@ Func _CreateBitmapFromIcon($iBackground, $sIcon, $iIndex, $iWidth, $iHeight)
     _WinAPI_ReleaseDC(0, $hDC)
     _WinAPI_DeleteDC($hBackDC)
     Return $hBitmap
-EndFunc   ;==>_CreateBitmapFromIcon
+EndFunc   ;==>_CreateBitmapFrom Icon
 
 Func _WinAPI_PrivateExtractIcon($sIcon, $iIndex, $iWidth, $iHeight)
 
@@ -517,7 +531,6 @@ Func _ArraySortEx(ByRef $aArray, $iDescending = 0, $iStart = 0, $iEnd = 0, $iSub
     $tIndex = 0
     DllClose($hDll)
     DllClose($hDllComp)
-
     Return 1
 EndFunc   ;==>_ArraySortEx
 
@@ -585,8 +598,8 @@ Func _AbortInstall()
 EndFunc   ;==>_AbortInstall
 
 Func _AutoReboot()
-    $iSetupStage = -1
-    _GuiState(6)
+  $iSetupStage = -1
+  _GuiState(6)
 	_Exit(0,2)
 EndFunc   ;==>_AutoReboot
 
@@ -619,27 +632,27 @@ Func _InstallInterrupt()
 EndFunc   ;==>_InstallInterrupt
 
 Func _InitInstall()
-	AdlibUnRegister("_InitInstall")
+  AdlibUnRegister("_InitInstall")
 ;~     If $bAbort Then
 ;~         If _AbortInstall() Then Return
 ;~     EndIf
 ;~     Return AdlibRegister("_InitInstall",1)
     ;Return $GUI_RUNDEFMSG
-	If _InstallInterrupt() Then Return
+  If _InstallInterrupt() Then Return
 	Local $areMatch[] = [ _
-			"Creating files: (\d+) of (\d+) \((\d{1,3})%\) done", _
-			"Extracting file data: (\d+) ((?:B|[A-Z]iB)) of (\d+) ((?:B|[A-Z]iB)) \((\d{1,3})%\) done", _
-			"Applying metadata to files: (\d+) of (\d+) \((\d{1,3})%\) done" _
-    ]
-    Local $iStgTot=5
-    Local $sStrFmtStg=StringFormat("Stage (%%d/%d) %%s",$iStgTot)
-    Local $sStrFmtStp=StringFormat("Step (%%%%d/%%d) %%%%s")
-    Local $iStepTot
-	Switch $iSetupStage
+    "Creating files: (\d+) of (\d+) \((\d{1,3})%\) done", _
+    "Extracting file data: (\d+) ((?:B|[A-Z]iB)) of (\d+) ((?:B|[A-Z]iB)) \((\d{1,3})%\) done", _
+    "Applying metadata to files: (\d+) of (\d+) \((\d{1,3})%\) done" _
+  ]
+  Local $iStgTot=5
+  Local $sStrFmtStg=StringFormat("Stage (%%d/%d) %%s",$iStgTot)
+  Local $sStrFmtStp=StringFormat("Step (%%%%d/%%d) %%%%s")
+  Local $iStepTot
+  Switch $iSetupStage
 		; Initializing Disk
-        Case 0 ; Clear Partition Table
-            $iStepTot=9
-            $sStrFmtStp=StringFormat($sStrFmtStp,$iStepTot)
+    Case 0 ; Clear Partition Table
+      $iStepTot=9
+      $sStrFmtStp=StringFormat($sStrFmtStp,$iStepTot)
 			GUICtrlSetData($gidLabelTot, 'Total Progress')
 			GUICtrlSetData($gidLabelStg, StringFormat($sStrFmtStg,$iSetupStage+1,"Preparing Disk"))
 			GUICtrlSetData($gidLabelStp, StringFormat($sStrFmtStp,1,"Clearing Partition Table"))
@@ -647,40 +660,40 @@ Func _InitInstall()
 			_SetProgress($gidProgStg, 0)
 			If _InstallInterrupt() Then Return
 			If Not $bSim Then $oDisk.Clear(1, 1)
-            _TimerSleep(125)
+      _TimerSleep(125)
 			_SetProgress($gidProgStg, (1/$iStepTot)*100)
 			_TimerSleep(1)
 			GUICtrlSetData($gidLabelStp, StringFormat($sStrFmtStp,2,"Initializing GPT Partition Table"))
 			If _InstallInterrupt() Then Return
 			If Not $bSim Then $oDisk.Initialize(2)
-            _TimerSleep(125)
+      _TimerSleep(125)
 			If Not $bSim Then $oDisk.Refresh()
-            _TimerSleep(125)
-            $oParts = $oWmiSmp.ExecQuery("SELECT * FROM MSFT_Partition WHERE DiskNumber = " & $oDisk.Number)
-            For $oPart In $oParts
-                $oPart.DeleteObject()
-            Next
-            _TimerSleep(125)
+      _TimerSleep(125)
+      $oParts = $oWmiSmp.ExecQuery("SELECT * FROM MSFT_Partition WHERE DiskNumber = " & $oDisk.Number)
+      For $oPart In $oParts
+          $oPart.DeleteObject()
+      Next
+      _TimerSleep(125)
 			_SetProgress($gidProgStp, (2 / $iStepTot) * 100)
 			_TimerSleep(1)
 			GUICtrlSetData($gidLabelStp, StringFormat($sStrFmtStp,3,"Creating EFI Partition"))
 			If _InstallInterrupt() Then Return
 			If Not $bSim Then $iRet = $oDisk.CreatePartition($iSizePartEfi, Null, Null, Null, 'T', Null, Null, "{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}")
-            _TimerSleep(125)
+      _TimerSleep(125)
 			;If $iRet<>0 Then Failure
 			_SetProgress($gidProgStp, (3 / $iStepTot) * 100)
 			_TimerSleep(1)
 			GUICtrlSetData($gidLabelStp, StringFormat($sStrFmtStp,4,"Creating MSR Partition"))
 			If _InstallInterrupt() Then Return
 			If Not $bSim Then $oDisk.CreatePartition($iSizePartMsr, Null, Null, Null, Null, Null, Null, "{e3c9e316-0b5c-4db8-817d-f92df00215ae}")
-            _TimerSleep(125)
+      _TimerSleep(125)
 			;If $iRet<>0 Then Failure
 			_SetProgress($gidProgStp, (4 / $iStepTot) * 100)
 			_TimerSleep(1)
 			GUICtrlSetData($gidLabelStp, StringFormat($sStrFmtStp,5,"Creating Windows Partition"))
 			If _InstallInterrupt() Then Return
 			If Not $bSim Then $oDisk.CreatePartition(String($oDisk.Size - $iSizePartEfi - $iSizePartMsr - $iSizePartRec - (2 * $iSizeMBytes)), Null, Null, Null, 'U')
-            _TimerSleep(125)
+      _TimerSleep(125)
 			;If $iRet<>0 Then Failure
 			_SetProgress($gidProgStp, (5 / $iStepTot) * 100)
 			_TimerSleep(1)
@@ -689,7 +702,7 @@ Func _InitInstall()
 			If Not $bSim Then $oDisk.CreatePartition($iSizePartRec, Null, Null, Null, 'V', Null, Null, "{de94bba4-06d1-4d40-a16a-bfd50179d6ac}")
 			;If $iRet<>0 Then Failure
 			If Not $bSim Then $oDisk.Refresh()
-            _TimerSleep(125)
+      _TimerSleep(125)
 			_SetProgress($gidProgStp, (6 / $iStepTot) * 100)
 			_TimerSleep(1)
 			If _InstallInterrupt() Then Return
@@ -732,35 +745,36 @@ Func _InitInstall()
 			_SetProgress($gidProgStg, (($iSetupStage+1)/$iStgTot)*100)
 			_SetProgress($gidProgTot, ($iStepTot/$iTotMax) * 100)
 			_TimerSleep(1)
-            _IncStage()
+      _IncStage()
 		Case 1 ; Applying Windows Image
 			GUICtrlSetData($gidLabelStg, StringFormat($sStrFmtStg,$iSetupStage+1,"Applying Windows Image"))
 			_SetProgress($gidProgStp, 0)
-            $sCmdLine='"' & $sDataDir & '\InfinitySys\bin\wimlib-imagex.exe" apply ' & (StringInStr($sWimPath, ' ') <> 0 ? '"' & $sWimPath & '"' : $sWimPath) & ' '&($iWimIdx+1)&' U:\'
-            _Log($sCmdLine&@CRLF)
-            If $bSim Then Return _IncStage()
-			$iWimLibPid = Run($sCmdLine, $sDataDir, @SW_HIDE, 0x6)
-            _TimerSleep(125)
-            ;$iWimLibPid=-1
+      $sCmdLine='"' & $sDataDir & '\InfinitySys\bin\wimlib-imagex.exe" apply ' & (StringInStr($sWimPath, ' ') <> 0 ? '"' & $sWimPath & '"' : $sWimPath) & ' '&($iWimIdx+1)&' U:\'
+      _Log($sCmdLine&@CRLF)
+      If $bSim Then Return _IncStage()
+			$iWimLibPid = Run($sCmdLine, $sDataDir, @SW_HIDE, 0x8)
+      ProcessWait($iWimLibPid)
+      ;$iWimLibPid=-1
 			$hWimLibProc = _WinAPI_OpenProcess($PROCESS_ALL_ACCESS, 0, $iWimLibPid)
 			;If Not $iPid Then Failed
 			Local $sStdErr = ''
 			Local $sStdOut = ''
+      Local $sStdOutCat = ''
 			Local $vReadOut, $vReadErr
-			Local $iErrOut, $iErrErr
-            $iStepTot=3
-            $sStrFmtStp=StringFormat($sStrFmtStp,$iStepTot)
-			While _TimerSleep(1)
+			Local $iErrOut=0, $iErrErr=0
+      $iStepTot=3
+      $sStrFmtStp=StringFormat($sStrFmtStp,$iStepTot)
+			While Sleep(1)
 				$vReadOut = StdoutRead($iWimLibPid, True)
 				$iErrOut = @error
-				$vReadErr = StderrRead($iWimLibPid, True)
-				$iErrErr = @error
+				;$vReadErr = StderrRead($iWimLibPid, True)
+				;$iErrErr = @error
 				If $vReadOut <> '' Then
 					$sStdOut = StringStripWS(StringStripCR(StdoutRead($iWimLibPid)), 7)
 				EndIf
-				If $vReadErr <> '' Then
-					$sStdErr = StringStripWS(StringStripCR(StderrRead($iWimLibPid)), 7)
-				EndIf
+				;If $vReadErr <> '' Then
+				;	$sStdErr=StringStripWS(StringStripCR(StderrRead($iWimLibPid)), 7)
+				;EndIf
 				If Not ProcessExists($iWimLibPid) Or $iErrOut <> 0 Or $iErrErr <> 0 Then ExitLoop
 				If StringRegExp($sStdOut, $areMatch[0]) Then
 					$vMatch=StringRegExp($sStdOut, $areMatch[0],1)
@@ -780,6 +794,8 @@ Func _InitInstall()
 					_SetProgress($gidProgStp, $vMatch[2])
 					_SetProgress($gidProgStg, ((200 + $vMatch[2]) / 300) * 100)
 					_SetProgress($gidProgTot, ((9 + 200 + $vMatch[2]) / $iTotMax) * 100)
+                Else
+                    $sStdOutCat&=$sStdOut
 				EndIf
 				If $bAbort Then
 					If _AbortInstall() Then Return
@@ -799,103 +815,102 @@ Func _InitInstall()
 				;Extracting File Data: 1 GiB of 9 GiB (18%) done
 				;Applying metadata to files: 25520 of 142705 (18%) done
 			WEnd
-            $iCode=_WinAPI_GetExitCodeProcess($hWimLibProc)
-            If $iCode<>0 Then
-                MsgBox(16,$sGuiTitle,StringFormat("Error: Installation Aborted! wimlib-imagex.exe returned an error:\r\n\r\n[Exitcode]\r\n%d\r\n\r\n[Cmdline]\r\n%s\r\n\r\n[STDERR]\r\n%s",$iCode,$sCmdLine,$sStdErr)&@CRLF)
-                $iSetupStage = -1
-                _GuiState(6)
-                _Exit($iCode)
-            EndIf
-            ;_Log($sStdOut&@CRLF)
-            _IncStage()
+      $iCode=_WinAPI_GetExitCodeProcess($hWimLibProc)
+      If $iCode<>0 Then
+          MsgBox(16,$sGuiTitle,StringFormat("Error: Installation Aborted! wimlib-imagex.exe returned an error:\r\n\r\n[Exitcode]\r\n%d\r\n\r\n[Cmdline]\r\n%s\r\n\r\n[STDOUT]\r\n%s[STDERR]\r\n%s",$iCode,$sCmdLine,$sStdOutCat,$sStdErr)&@CRLF)
+          $iSetupStage = -1
+          _GuiState(6)
+          _Exit($iCode)
+      EndIf
+      ;_Log($sStdOut&@CRLF)
+      _IncStage()
 		Case 2 ; Integrate Drivers
-            $iStepTot=5
-            $sStrFmtStp=StringFormat($sStrFmtStp,$iStepTot)
-
-            If Not FileExists("X:\initDrivers.ini") Then Return _IncStage()
-            GUICtrlSetData($gidLabelStg, StringFormat($sStrFmtStg,$iSetupStage+1,"Integrating Drivers"))
-            _SetProgress($gidProgStp, 0)
-            Local $aDrivers=IniReadSection("X:\initDrivers.ini","drvload")
-            If @error Then Return _IncStage()
-            If $aDrivers[0][0]=0 Then Return _IncStage()
-            GUICtrlSetData($gidLabelStp, StringFormat($sStrFmtStp,1,"Add Driver(s) to Windows..."))
+      $iStepTot=5
+      $sStrFmtStp=StringFormat($sStrFmtStp,$iStepTot)
+      If Not FileExists("X:\initDrivers.ini") Then Return _IncStage()
+      GUICtrlSetData($gidLabelStg, StringFormat($sStrFmtStg,$iSetupStage+1,"Integrating Drivers"))
+      _SetProgress($gidProgStp, 0)
+      Local $aDrivers=IniReadSection("X:\initDrivers.ini","drvload")
+      If @error Then Return _IncStage()
+      If $aDrivers[0][0]=0 Then Return _IncStage()
+      GUICtrlSetData($gidLabelStp, StringFormat($sStrFmtStp,1,"Add Driver(s) to Windows..."))
 			_SetProgress($gidProgStp, (1 / $iStepTot) * 100)
 			_TimerSleep(1)
-            If Not $bSim Then _injDrivers($aDrivers,"U:\\") ; Have to excape backslash due to StringFormat.
-            Local $sDirCommon="U:\Windows\System32\Recovery"
-            Local $sMountDir=$sDirCommon&"\WinRE-Mount"
-            Local $sMountWim=$sDirCommon&"\WinRE.wim"
-            If Not FileExists($sMountWim) Then
-                _Log(StringFormat("~!Error@_InitInstall,WimWinRENotExist:%s\r\n",$sMountDir))
-                Return _IncStage()
-            EndIf
-            GUICtrlSetData($gidLabelStp, StringFormat($sStrFmtStp,2,"Mounting WinRE.wim..."))
-            _SetProgress($gidProgStp, (2 / $iStepTot) * 100)
-            _TimerSleep(1)
-            If Not $bSim Then
-                If FileExists($sMountDir) Then
-                    _Log(StringFormat("~!Warn@_InitInstall,MountDirPreExists:%s\r\n",$sMountDir))
-                    If StringInStr(FileGetAttrib($sMountDir),"d") Then
-                        _CleanupMountDir($sMountDir)
-                    Else
-                        _Log(StringFormat("~!Error@_InitInstall,MountDirIsAFile:%s\r\n",$sMountDir))
-                        Return _IncStage()
-                    EndIf
-                EndIf
-                If FileExists($sMountDir) Then
-                    _Log(StringFormat("~!Error@_InitInstall,MountDirStillExists:%s\r\n",$sMountDir))
-                    Return _IncStage()
-                EndIf
-                DirCreate($sMountDir)
-                If Not FileExists($sMountDir) Then
-                    _Log(StringFormat("~!Error@_InitInstall,MountDirNotCreated:%s\r\n",$sMountDir))
-                    Return _IncStage()
-                EndIf
-                CmdGetOut(StringFormat('dism /Mount-Wim /WimFile:"%s" /Index:1 /MountDir:"%s"',$sMountWim,$sMountDir))
-                If @Error Then
-                    _CleanupMountDir($sMountDir)
-                    Return _IncStage()
-                EndIf
-            EndIf
-            GUICtrlSetData($gidLabelStp, StringFormat($sStrFmtStp,3,"Adding Drivers to WinRE..."))
-            _SetProgress($gidProgStp, (3 / $iStepTot) * 100)
-            _TimerSleep(125)
-            If Not $bSim Then _injDrivers($aDrivers,$sMountDir)
-            GUICtrlSetData($gidLabelStp, StringFormat($sStrFmtStp,4,"Saving WinRE.wim..."))
-            _SetProgress($gidProgStp, (4 / $iStepTot) * 100)
-            If Not $bSim Then
-                CmdGetOut(StringFormat('dism /UnMount-Wim /MountDir:"%s" /Commit',$sMountDir))
-                If @Error Then
-                    _CleanupMountDir($sMountDir)
-                    Return _IncStage()
-                EndIf
-                _CleanupMountDir($sMountDir)
-            EndIf
-            ; Dism Add Drivers to Sys
+      If Not $bSim Then _injDrivers($aDrivers,"U:\\") ; Have to excape backslash due to StringFormat.
+      Local $sDirCommon="U:\Windows\System32\Recovery"
+      Local $sMountDir=$sDirCommon&"\WinRE-Mount"
+      Local $sMountWim=$sDirCommon&"\WinRE.wim"
+      If Not FileExists($sMountWim) Then
+        _Log(StringFormat("~!Error@_InitInstall,WimWinRENotExist:%s\r\n",$sMountDir))
+        Return _IncStage()
+      EndIf
+      GUICtrlSetData($gidLabelStp, StringFormat($sStrFmtStp,2,"Mounting WinRE.wim..."))
+      _SetProgress($gidProgStp, (2 / $iStepTot) * 100)
+      _TimerSleep(1)
+      If Not $bSim Then
+        If FileExists($sMountDir) Then
+          _Log(StringFormat("~!Warn@_InitInstall,MountDirPreExists:%s\r\n",$sMountDir))
+          If StringInStr(FileGetAttrib($sMountDir),"d") Then
+            _CleanupMountDir($sMountDir)
+          Else
+            _Log(StringFormat("~!Error@_InitInstall,MountDirIsAFile:%s\r\n",$sMountDir))
+            Return _IncStage()
+          EndIf
+        EndIf
+        If FileExists($sMountDir) Then
+          _Log(StringFormat("~!Error@_InitInstall,MountDirStillExists:%s\r\n",$sMountDir))
+          Return _IncStage()
+        EndIf
+        DirCreate($sMountDir)
+        If Not FileExists($sMountDir) Then
+          _Log(StringFormat("~!Error@_InitInstall,MountDirNotCreated:%s\r\n",$sMountDir))
+          Return _IncStage()
+        EndIf
+        CmdGetOut(StringFormat('dism /Mount-Wim /WimFile:"%s" /Index:1 /MountDir:"%s"',$sMountWim,$sMountDir))
+        If @Error Then
+          _CleanupMountDir($sMountDir)
+          Return _IncStage()
+        EndIf
+      EndIf
+      GUICtrlSetData($gidLabelStp, StringFormat($sStrFmtStp,3,"Adding Drivers to WinRE..."))
+      _SetProgress($gidProgStp, (3 / $iStepTot) * 100)
+      _TimerSleep(125)
+      If Not $bSim Then _injDrivers($aDrivers,$sMountDir)
+      GUICtrlSetData($gidLabelStp, StringFormat($sStrFmtStp,4,"Saving WinRE.wim..."))
+      _SetProgress($gidProgStp, (4 / $iStepTot) * 100)
+      If Not $bSim Then
+        CmdGetOut(StringFormat('dism /UnMount-Wim /MountDir:"%s" /Commit',$sMountDir))
+        If @Error Then
+          _CleanupMountDir($sMountDir)
+          Return _IncStage()
+        EndIf
+        _CleanupMountDir($sMountDir)
+      EndIf
+      ; Dism Add Drivers to Sys
 			_SetProgress($gidProgStp, 100)
 			_SetProgress($gidProgStg, (($iSetupStage+1)/$iStgTot)*100)
 			_SetProgress($gidProgTot, ($iStepTot/$iTotMax) * 100)
 			_TimerSleep(1)
-            _IncStage()
-        Case 3 ; Copying Windows' boot files
+      _IncStage()
+    Case 3 ; Copying Windows' boot files
 			GUICtrlSetData($gidLabelStg, StringFormat($sStrFmtStg,$iSetupStage+1,"Copying System Files"))
 			_SetProgress($gidProgStp, 0)
 			_SetProgress($gidProgStg, 0)
 			Local $aFilesA = StringSplit("boot.stl|bootmgfw.efi|bootmgr.efi|kd_02_10df.dll|kd_02_10ec.dll|kd_02_1137.dll|kd_02_14e4.dll|kd_02_15b3.dll|kd_02_1969.dll|kd_02_19a2.dll|kd_02_1af4.dll|kd_02_8086.dll|kd_07_1415.dll|kd_0C_8086.dll|kdnet_uart16550.dll|kdstub.dll|memtest.efi|winsipolicy.p7b", '|')
 			Local $aFilesB = StringSplit("chs_boot.ttf|cht_boot.ttf|jpn_boot.ttf|kor_boot.ttf|malgun_boot.ttf|malgunn_boot.ttf|meiryo_boot.ttf|meiryon_boot.ttf|msjh_boot.ttf|msjhn_boot.ttf|msyh_boot.ttf|msyhn_boot.ttf|segmono_boot.ttf|segoe_slboot.ttf|segoen_slboot.ttf|wgl4_boot.ttf", '|')
 			Local $aFilesC = StringSplit("WinRE.wim|ReAgent.xml", '|')
-			Local $aFileList[][3] = [[6, '', ''], _
-                ["U:\Windows\Boot\EFI", "T:\EFI\Microsoft\Boot", $aFilesA], _
-                ["U:\Windows\Boot\Fonts", "T:\EFI\Microsoft\Boot\Fonts", $aFilesB], _
-                ["U:\Windows\Boot\Resources", "T:\EFI\Microsoft\Boot\Resources", "bootres.dll"], _
-                ["U:\Windows\Boot\EFI", "T:\EFI\Boot", "bootmgfw.efi"], _
-                ["U:\Windows\Boot\DVD\EFI", "V:\Recovery\WindowsRE", "boot.sdi"], _
-                ["U:\Windows\System32\Recovery", "V:\Recovery\WindowsRE", $aFilesC] _
-            ]
+			Local $aFileList[][3]=[[6,'',''], _
+        ["U:\Windows\Boot\EFI", "T:\EFI\Microsoft\Boot", $aFilesA], _
+        ["U:\Windows\Boot\Fonts", "T:\EFI\Microsoft\Boot\Fonts", $aFilesB], _
+        ["U:\Windows\Boot\Resources", "T:\EFI\Microsoft\Boot\Resources", "bootres.dll"], _
+        ["U:\Windows\Boot\EFI", "T:\EFI\Boot", "bootmgfw.efi"], _
+        ["U:\Windows\Boot\DVD\EFI", "V:\Recovery\WindowsRE", "boot.sdi"], _
+        ["U:\Windows\System32\Recovery", "V:\Recovery\WindowsRE", $aFilesC] _
+      ]
 			_InitCopy($aFileList, 309)
-            If Not $bSim Then FileMove("T:\EFI\Boot\bootmgfw.efi","T:\EFI\Boot\bootx64.efi",9)
-            _TimerSleep(125)
-            _IncStage()
+      If Not $bSim Then FileMove("T:\EFI\Boot\bootmgfw.efi","T:\EFI\Boot\bootx64.efi",9)
+      _TimerSleep(125)
+      _IncStage()
 		Case 4 ; Configure BCD
 			GUICtrlSetData($gidLabelStg, StringFormat($sStrFmtStg,$iSetupStage+1,"Configuring System"))
 			_SetProgress($gidProgStp, 0)
@@ -921,19 +936,30 @@ Func _InitInstall()
 				GUICtrlSetData($gidLabelStp, 'Step (' & $i & '/' & $aCmds[0] & ") Cmd: " & $aCmds[$i])
 				If _InstallInterrupt() Then Return
 				If Not $bSim Then
-                    If RunWait($aCmds[$i], $aCmds, @SW_HIDE, 0x10000) <> 0 Then $iRet += 2 ^ $i
-                EndIf
-				_SetProgress($gidProgStp, ($i / ($aCmds[0])) * 100)
-				_SetProgress($gidProgStg, ($i / ($aCmds[0])) * 100)
-				_SetProgress($gidProgTot, ((348 + $i) / $iTotMax) * 100)
+          If RunWait($aCmds[$i], $aCmds, @SW_HIDE, 0x10000) <> 0 Then $iRet += 2 ^ $i
+        EndIf
+				_SetProgress($gidProgStp,($i/($aCmds[0]))*100)
+				_SetProgress($gidProgStg,($i/($aCmds[0]))*100)
+				_SetProgress($gidProgTot,((348+$i)/$iTotMax)*100)
 			Next
-            _SetProgress($gidProgStp, 100)
-			_SetProgress($gidProgStg, 100)
-			_SetProgress($gidProgTot, 100)
-			GUICtrlSetData($gidLabelStp, "All Steps Completed")
-			GUICtrlSetData($gidLabelStg, "All Stages Completed")
-            _IncStage()
+      _SetProgress($gidProgStp,100)
+			_SetProgress($gidProgStg,100)
+			_SetProgress($gidProgTot,100)
+			GUICtrlSetData($gidLabelStp,"All Steps Completed")
+			GUICtrlSetData($gidLabelStg,"All Stages Completed")
+      _IncStage()
 		Case 5 ; Finals
+      ; Do Audit Boot
+      If Not $bSim And $bOptAudit Then
+        _ulsh()
+        _lsh()
+        IniWrite("U:\Windows\Setup\State\State.ini","State","ImageState","IMAGE_STATE_GENERALIZE_RESEAL_TO_AUDIT")
+        RegWrite("HKLM\Sys_Software\Microsoft\Windows\CurrentVersion\Setup\State","ImageState","REG_SZ","IMAGE_STATE_GENERALIZE_RESEAL_TO_AUDIT")
+        RegWrite("HKLM\Sys_System\Setup\Status","AuditBoot","REG_DWORD",0x8)
+        _ulsh()
+      EndIf
+      ; Check for _.Staging Folder, Read Presets, allow Selection, Copy Staging+Client folder, Init Auto Stage.
+
 			$iSetupStage = -1
 			_GuiState(6)
 ;~ 			If $bOptUnattend Then
@@ -971,7 +997,7 @@ EndFunc   ;==>_InitTimeout
 
 Func _AbortTimeout()
 	AdlibUnRegister("_WndTimeout")
-    _SetProgress($gidProgTot,100)
+  _SetProgress($gidProgTot,100)
 	GUICtrlSetData($gidLabelTot, $_WndTimeoutMsgLast)
 EndFunc   ;==>_AbortTimeout
 
@@ -1053,8 +1079,8 @@ Func _InitCopy($aList, $iTotal, $iC = 0)
 				$iFileCur = $c
 				_SetProgress($gidProgStp, 0)
 				; This Method DOES hang after a few seconds when copying large files (like winre.wim), possible workaround is spawn child process and stdio for progress.
-                _Log('"'&$sSrc&'"->"'&$sDst&'"')
-                If Not $bSim Then _Log(_WinAPI_CopyFileEx($sSrc, $sDst, 0, $pProgressProc)&@CRLF)
+        _Log('"'&$sSrc&'"->"'&$sDst&'"')
+        If Not $bSim Then _Log(_WinAPI_CopyFileEx($sSrc, $sDst, 0, $pProgressProc)&@CRLF)
 				$c += 1
 				_SetProgress($gidProgStp, 100)
 				_SetProgress($gidProgStg, ($c / $iFileTot) * 100)
@@ -1103,43 +1129,47 @@ Func _GuiState($iState)
 			_GuiCtrlState($iGuiLastState)
 			_GuiCtrlState($iGuiOptLastState,1)
 		Case 0 ; Initial
-			_GuiCtrlState(2,1) ; Auto Reboot Enabled.
+			_GuiCtrlState(6,1) ; Auto Reboot+Audit Mode Enabled.
 			_GuiCtrlState(8,2) ; Install Visible.
-			_GuiCtrlState(4)    ; Only Rescan Enabled.
+			_GuiCtrlState(4)   ; Only Rescan Enabled.
 			_RefreshDisks()
 		Case 1 ; Disk Selected
 			_GuiCtrlState(8,2)   ; Install Visible.
 			_GuiCtrlState(2+4+16) ;  SelDisk+Rescan+SelWim+BrowseWim Enabled.
-            ; Initialize WimSel
-            _SelSetStatic($ghWimIdx,"No WIM/ESD Image selected.",32,1)
+      ; Initialize WimSel
+      _SelSetStatic($ghWimIdx,"No WIM/ESD Image selected.",32,1)
 			_ScanWims()
 		Case 2 ; Disabled
-            ; While ScanDisk+BrowseWim
+      ; While ScanDisk+BrowseWim
 			$iGuiLastState=$iGuiState
 			$iGuiOptLastState=$iGuiOptState
-			_GuiCtrlState(2048) ; Only Abort Visible.
+			_GuiCtrlState(8192) ; Only Abort Visible.
+    ; [1] 0x1024, Pause
+    ; [2] 0x2048, Resume
+    ; [3] 0x4096, Install
+    ; [4] 0x8192, Abort
 		Case 3 ; Installing
 			_GuiCtrlState(2,2) ; Pause Visible
-            _GuiCtrlState(64+128+256+512+1024) ; Opt(s)+Pause+Resume+Install+Abort Enabled
+      _GuiCtrlState(16320) ; Opt(s)+Pause+Resume+Install+Abort Enabled
 		Case 4 ; Paused
 			_GuiCtrlState(4,2) ; Resume Visible
-            _GuiCtrlState(64+128+256+512+1024) ; Opt(s)+Pause+Resume+Install+Abort Enabled
+      _GuiCtrlState(16320) ; Opt(s)+Pause+Resume+Install+Abort Enabled
 		Case 5 ; Resume
 			_GuiCtrlState(2,2) ; Pause Visible
-            _GuiCtrlState(64+128+256+512+1024) ; Opt(s)+Pause+Resume+Install+Abort Enabled
+      _GuiCtrlState(16320) ; Opt(s)+Pause+Resume+Install+Abort Enabled
 		Case 6 ; Post Install
-            WinActivate($hMain)
+      WinActivate($hMain)
 			_GuiCtrlState(8,2) ; Install Visible
 			_GuiCtrlState(0) ; Only Quit Enabled
 		Case 7 ; Timeout Mode
-            WinActivate($hMain)
+      WinActivate($hMain)
 			_GuiCtrlState(8,2) ; Install Visible
-            ;_GuiCtrlState(0, 1)
-            ;_GuiCtrlState(0)
+      ;_GuiCtrlState(0, 1)
+      ;_GuiCtrlState(0)
 			_GuiCtrlState(1024) ; Only Abort Enabled
 		Case 8 ; Abort Install
 			_GuiCtrlState(8,2) ; Install Visible
-			_GuiCtrlState(2+4+8+16+32+64+128+256+512); SelDisk+Rescan+SelWim+BrowseWim+SelWimIdx+Opt(s)+Pause+Resume+Install
+			_GuiCtrlState(2+4+8+16+32+16320); SelDisk+Rescan+SelWim+BrowseWim+SelWimIdx+Opt(s)+Pause+Resume+Install
 	EndSwitch
 EndFunc   ;==>_GuiState
 
@@ -1159,7 +1189,7 @@ Func _GuiEvtButton()
                 Return
             Else
                 ;_Log($aDisks[$iDisk+1][3]&@CRLF)
-                If StringInStr($aDisks[$iDisk+1][3],$sVol) Then
+                If StringInStr($aDisks[$iDisk][3],$sVol) Then
                     MsgBox(48,$sGuiTitle,StringFormat("WARNING: This install image resides on the disk that has been selected for installation. Installation cannot continue. Please select a different disk, or browse for an alternative image to continue."))
                     Return
                 EndIf
@@ -1247,43 +1277,46 @@ Func _SelDisk($iIndex)
 	For $oObj In $oDisks
 		If $oObj.Number <> $aDisks[$iIndex+1][0] Then ContinueLoop
 		$oDisk = $oObj
-		$iDisk = $aDisks[$iIndex+1][0]
+    ;$aDisks[0][1]
+		$iDisk = $iIndex+1
 		ExitLoop
 	Next
 	;_ScanWims()
 	;_Log($iDisk & @CRLF)
 	_GuiState(1)
-	_GUICtrlComboBox_SetCurSel($ghDisks, $iDisk)
+	_GUICtrlComboBox_SetCurSel($ghDisks, $iDisk-1)
 EndFunc   ;==>_SelDisk
 
 Func _SelWim($iIndex,$iUpdate=0)
 	;_GuiState(1)
-    _GuiCtrlState(BitAND($iGuiState,BitNOT(64+128+256+512)))
-    ;_Log($aWims[$iIndex+1][0]&','&$iIndex&@CRLF)
-    $sWimPath=$aWims[$iIndex+1][0]
+  ; [1] 0x1024, Pause
+  ; [2] 0x2048, Resume
+  ; [3] 0x4096, Install
+  ; [4] 0x8192, Abort
+  _GuiCtrlState(BitAND($iGuiState,BitNOT(16320)))
+  ;_Log($aWims[$iIndex+1][0]&','&$iIndex&@CRLF)
+  $sWimPath=$aWims[$iIndex+1][0]
 	_GUICtrlComboBox_SetCurSel($ghWim, $iIndex)
-    _SelSetStatic($ghWimIdx,"Checking...",32)
-    $aWimImages=_WimGetInfo($sWimPath)
-    If Not @error Then
-        If Not $aWimImages[0][0] Then Return
-        _GUICtrlComboBox_BeginUpdate($ghWimIdx)
-        _GUICtrlComboBox_ResetContent($ghWimIdx)
-        For $i = 1 To $aWimImages[0][0]
-            ;_Log($aWimImages[$i][1]&@CRLF)
-            _GUICtrlComboBox_AddString($ghWimIdx,StringFormat("Index %d: %s",$i,$aWimImages[$i][1]))
-        Next
-        ;If $aWims[0][0]=1 Then _GUICtrlComboBox_SetCurSel($ghWim, $aWims[0][0])
-        _GUICtrlComboBox_EndUpdate($ghWimIdx)
-    Else
-
-    EndIf
-    _SetWimIdxSelState()
+  _SelSetStatic($ghWimIdx,"Checking...",32)
+  $aWimImages=_WimGetInfo($sWimPath)
+  If Not @error Then
+    If Not $aWimImages[0][0] Then Return
+    _GUICtrlComboBox_BeginUpdate($ghWimIdx)
+    _GUICtrlComboBox_ResetContent($ghWimIdx)
+    For $i = 1 To $aWimImages[0][0]
+      ;_Log($aWimImages[$i][1]&@CRLF)
+      _GUICtrlComboBox_AddString($ghWimIdx,StringFormat("Index %d: %s",$i,$aWimImages[$i][1]))
+    Next
+    ;If $aWims[0][0]=1 Then _GUICtrlComboBox_SetCurSel($ghWim, $aWims[0][0])
+    _GUICtrlComboBox_EndUpdate($ghWimIdx)
+  EndIf
+  _SetWimIdxSelState()
 EndFunc   ;==>_SelDisk
 
 Func _SelWimIdx($iIndex)
     $iWimIdx=$iIndex
     ;_Log($iWimIdx&@CRLF)
-    _GuiCtrlState(BitOR($iGuiState,64+128+256+512))
+    _GuiCtrlState(BitOR($iGuiState,16320))
 EndFunc   ;==>_SelDisk
 
 Func WM_NOTIFY($hWnd, $iMsg, $wParam, $lParam)
@@ -1352,6 +1385,7 @@ Func _SetWimSelState()
 		_GUICtrlComboBox_SetCueBanner($ghWim, "Select WIM/ESD")
         _SelSetStatic($ghWimIdx,"No WIM/ESD Image selected.",32,1)
         _GUICtrlComboBox_EndUpdate($ghWim)
+        _DebugState(BitXOR($iGuiState, 8))
         If $aWims[0][0]=1 Then
             _SelWim(0)
             _GuiCtrlState(BitXOR($iGuiState, 8))
@@ -1361,7 +1395,9 @@ Func _SetWimSelState()
         ;_GUICtrlComboBox_ResetContent($ghWim)
         _SelSetStatic($ghWim,"No WIM/ESD Images Found",8,1)
         _SelSetStatic($ghWimIdx,"No WIM/ESD Image selected.",32,1)
-        _GuiCtrlState(BitXOR($iGuiState, 8+32))
+        _DebugState(BitAND($iGuiState,BitNOT(8+32)))
+        _GuiCtrlState(BitAND($iGuiState,BitNOT(8+32)))
+        ;_GuiCtrlState(BitXOR($iGuiState, 8+32))
 	EndIf
 EndFunc
 
@@ -1411,7 +1447,7 @@ Func _RefreshDisks()
 	For $i = 1 To $aDisks[0][0]
 		_GUICtrlComboBox_AddString($ghDisks, "Disk " & $aDisks[$i][0] & ": " & $aDisks[$i][1] & " (" & $aDisks[$i][2] & ")")
 	Next
-	If $iDisk <> -1 Then _SelDisk($iDisk);_GUICtrlComboBox_SetCurSel($ghDisks, $iDisk+1)
+	If $iDisk <> -1 Then _SelDisk($iDisk-1);_GUICtrlComboBox_SetCurSel($ghDisks, $iDisk+1)
 	_GUICtrlComboBox_EndUpdate($ghDisks)
 	_SetDiskSelState()
 EndFunc
@@ -1463,8 +1499,9 @@ Func _FindImage($sPath = "Sources", $sImage = "Install")
 		; Skip drive letters belonging to the drive we're wiping.
 		Local $aSkip[] = [1, "x:"]
 		Local $iMax = 0
+    If $iDisk=-1 Then Return
 		For $oObj In $oDisks
-			If $oObj.Number <> $iDisk Then ContinueLoop ; If disk selected then skip it.
+			If $oObj.Number <> $aDisks[$iDisk][0] Then ContinueLoop ; If disk selected then skip it.
 			$oParts = $oWmiSmp.ExecQuery("SELECT * FROM MSFT_Partition WHERE DiskNumber = " & $oObj.Number)
 			For $oPart In $oParts
 				If $oPart.DriveLetter == 0 Then ContinueLoop
@@ -1513,25 +1550,23 @@ EndFunc   ;==>
 
 Func _WimGetImages($sPath)
 EndFunc
-;_GuiCtrlState(0)
-;_GuiCtrlState(1, 1)
-;_GuiCtrlState(0, 2)
-;; Default States
-;_GuiState(0)
 
 Func _GuiCtrlState($iState, $iMode = 0)
     ;_Log("0b"&_ToBase($iGuiState,2,16)&@LF&"0b"&_ToBase($iState,2,16)&@CRLF)
 	If $iMode = 1 Then
-	    ; [1] 0x2, Auto Reboot
+    ; [1] 0x2, Auto Reboot
 		For $i = 1 To $agidOpt[0]
 			GUICtrlSetState($agidOpt[$i], BitAND($iState, 2 ^ $i) ? $GUI_CHECKED : $GUI_UNCHECKED)
 		Next
-		$bOptAutoReboot = BitAND($iState, 2 ^ 1)
-		$iGuiOptState = $iState
+		$bOptAutoReboot=BitAND($iState,2^1)
+    $bOptAudit=BitAND($iState,2^2)
+    $bOptRamIns=BitAND($iState,2^3)
+    $bOptDoStage=BitAND($iState,2^4)
+		$iGuiOptState=$iState
 	ElseIf $iMode = 2 Then
-        ; [1] 0x2, Pause
-        ; [2] 0x4, Resume
-        ; [3] 0x8, Install
+    ; [1] 0x2, Pause
+    ; [2] 0x4, Resume
+    ; [3] 0x8, Install
 		For $i = 1 To 3
 			GUICtrlSetState($agidBtn[$i], BitAND($iState, 2 ^ $i) ? $GUI_SHOW : $GUI_HIDE)
 		Next
@@ -1542,21 +1577,24 @@ Func _GuiCtrlState($iState, $iMode = 0)
 		GUICtrlSetState($gidWim, BitAND($iState, 8) ? $GUI_ENABLE : $GUI_DISABLE)       ; 0x8, Select WIM
 		GUICtrlSetState($gidWimSel, BitAND($iState, 16) ? $GUI_ENABLE : $GUI_DISABLE)   ; 0x16, Browse for WIM
 		GUICtrlSetState($gidWimIdx, BitAND($iState, 32) ? $GUI_ENABLE : $GUI_DISABLE)   ; 0x32, Select WIM Index
-        ; [1] 0x64, Auto Reboot
-		For $i = 1 To $agidOpt[0]
+    ; [1] 0x64, Auto Reboot
+    ; [2] 0x128, Audit Mode
+    ; [3] 0x256, RAM Inst
+    ; [4] 0x512, Auto Stage
+		For $i = 1 To $agidOpt[0]-1
 			GUICtrlSetState($agidOpt[$i], BitAND($iState, 2 ^ (5 + $i)) ? $GUI_ENABLE : $GUI_DISABLE)
 		Next
-        ; [1] 0x128, Pause
-        ; [2] 0x256, Resume
-        ; [3] 0x512, Install
-        ; [4] 0x1024, Abort
+    ; [1] 0x1024, Pause
+    ; [2] 0x2048, Resume
+    ; [3] 0x4096, Install
+    ; [4] 0x8192, Abort
 		For $i = 1 To $agidBtn[0]-1
 			GUICtrlSetState($agidBtn[$i], BitAND($iState, 2 ^ (5 + $agidOpt[0] + $i)) ? $GUI_ENABLE : $GUI_DISABLE)
 		Next
-        ; [5] 0x2048, Tools
-        GUICtrlSetState($agidBtn[$agidBtn[0]-1], $GUI_ENABLE)
-        ; [5] 0x4096, Quit
-        GUICtrlSetState($agidBtn[$agidBtn[0]], $GUI_ENABLE)
+    ; [5] 0x2048, Tools
+    GUICtrlSetState($agidBtn[$agidBtn[0]-1], $GUI_ENABLE)
+    ; [5] 0x4096, Quit
+    GUICtrlSetState($agidBtn[$agidBtn[0]], $GUI_ENABLE)
 		$iGuiState = $iState
 	EndIf
 EndFunc   ;==>_GuiCtrlState
@@ -1574,8 +1612,14 @@ Func _GuiEvtOpt()
 	Switch @GUI_CtrlId
 		;Case $agidOpt[1] ; Pause
 		;	$bOptUnattend = (GUICtrlRead($agidOpt[1]) <> 4 ? 1 : 0)
-		Case $agidOpt[1] ; Pause
-			$bOptAutoReboot = (GUICtrlRead($agidOpt[1]) <> 4 ? 1 : 0)
+		Case $agidOpt[1] ; AutoReboot
+			$bOptAutoReboot=(GUICtrlRead($agidOpt[1])<>4?1:0)
+		Case $agidOpt[2] ;AuditMode
+			$bOptAudit=(GUICtrlRead($agidOpt[2])<>4?1:0)
+		Case $agidOpt[3] ;RamInst
+			$bOptRamInst=(GUICtrlRead($agidOpt[3])<>4?1:0)
+		Case $agidOpt[4] ;ctStage
+			$bOptDoStage=(GUICtrlRead($agidOpt[4])<>4?1:0)
 	EndSwitch
 EndFunc   ;==>_GuiEvtOpt
 
@@ -1801,4 +1845,25 @@ Func _CleanupMountDir($sMountDir)
     CmdGetOut(StringFormat('dism /UnMount-Wim /MountDir:"%s" /Discard',$sMountDir))
     CmdGetOut("dism /Cleanup-Wim")
     DirRemove($sMountDir,1)
+EndFunc
+
+Func _lsh()
+    Local $aHives[]=[8,"System","Default","Software","Sam","Security","Drivers","Components","BBI","ELAM"]
+    _Log("[Loading Hives]"&@CRLF)
+    For $i=1 To $aHives[0]
+        _Log($aHives[$i]&'...')
+        RunWait('reg load HKLM\Sys_'&$aHives[$i]&' "U:\Windows\System32\config\'&$aHives[$i]&'"')
+    Next
+EndFunc
+
+Func _ulsh()
+    Local $aHives[]=[8,"System","Default","Software","Sam","Security","Drivers","Components","BBI","ELAM"]
+    _Log("[Unloading Hives]"&@CRLF)
+    For $i=1 To $aHives[0]
+        RegRead('HKLM\Sys_'&$aHives[$i],"")
+        If Not @error Then
+            _Log($aHives[$i]&'...')
+            RunWait('reg unload HKLM\Sys_'&$aHives[$i])
+        EndIf
+    Next
 EndFunc
